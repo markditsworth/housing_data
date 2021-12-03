@@ -7,22 +7,48 @@ import db_gateway
 import email_gateway
 import random
 import pandas as pd
-
+from urllib.request import Request, urlopen
 from bs4 import BeautifulSoup
 from time import sleep
-
+from tenacity import retry, stop_after_attempt, wait_fixed
 from config.location import *
 from config.base import *
 
 
 base_url = "https://www.redfin.com"
-def scrape(Location, filters):
+
+def getProxies():
+    proxies = []
+    proxy_req = Request('https://www.sslproxies.org')
+    proxy_req.add_header('User-Agent', random.choice(user_agent_pool))
+    proxy_doc = urlopen(proxy_req).read().decode('utf8')
+
+    soup = BeautifulSoup(proxy_doc, 'html.parser')
+    
+    proxies_table = soup.find(lambda tag: tag.name=="table")
+    rows = proxies_table.findAll(lambda tag: tag.name=="tr")
+    # Save proxies in the array
+    for row in rows[1:]:
+        data = row.findAll(lambda tag: tag.name=="td")
+        country = data[2].text
+        if country == "US":
+            ip = data[0].text
+            port = data[1].text
+            proxies.append(f"http://{ip}:{port}")
+    return proxies
+
+
+@retry(stop=stop_after_attempt(10), wait=wait_fixed(5))
+def scrape(Location, filters, proxy_list):
+    proxy = random.choice(proxy_list)
     city_path = f"/city/{Location.id}/{Location.state}/{Location.city}"
     url = base_url + city_path + "/filter/" + ",".join(filters)
-    user_agent = {'User-agent': 'Mozilla/5.0 (X11; Fedora; Linux x86_64; rv:92.0) Gecko/20100101 Firefox/92.0'}
+    user_agent = {'User-agent': random.choice(user_agent_pool)}
     print(f"searching {url}")
-    r = requests.get(url, headers=user_agent)
+    r = requests.get(url, headers=user_agent, proxies={"https":proxy})
     print(r.status_code)
+    if r.status_code == 403:
+        raise Exception
     return r.text
 
 def parseDownloadLink(html, download_id="download-and-save"):
@@ -36,9 +62,11 @@ def parseDownloadLink(html, download_id="download-and-save"):
     print(f"Got href: {href}")
     return href
 
-def downloadCSV(url, filename):
+@retry(stop=stop_after_attempt(4), wait=wait_fixed(5))
+def downloadCSV(url, filename, proxy_list):
     print(f"attempting download from {url}")
-    opener=urllib.request.build_opener()
+    proxy = urllib.request.ProxyHandler({'https': random.choice(proxy_list)})
+    opener=urllib.request.build_opener(proxy)
     opener.addheaders=[('User-Agent',random.choice(user_agent_pool))]
     urllib.request.install_opener(opener)
     urllib.request.urlretrieve(url,filename)
@@ -62,30 +90,34 @@ if __name__ == "__main__":
     loaded_cities = set([])
     downloaded_cities = set([])
     cities = getListOfCities()
+    proxy_pool = getProxies()
     for city in cities:
-        exec("html = scrape(%s, filters)"%(city))
-        href = parseDownloadLink(html)
-        if href:
-            try:
-                exec("city_name = %s.city"%(city))
-                exec("state = %s.state"%(city))
-                filename = f"{city_name}_{state}.csv"
-                downloadCSV(base_url + href, filename)
-                sleep(10)
-                df = pd.read_csv(filename)
-                downloaded_cities.add(city)
-                df = db_gateway.transform(df)
-                db_gateway.load(df)
-                loaded_cities.add(city)
-            except Exception as e:
-                print("Error:")
-                print(str(e))
-            local_files = os.listdir(os.getcwd())
-            if filename in local_files:
-                os.remove(filename)
-        else:
-            print(f"Unable to download from {city}")
-            unscrapable_cities.add(city)
+        try:
+            exec("html = scrape(%s, filters, proxy_pool)"%(city))
+            href = parseDownloadLink(html)
+            if href:
+                try:
+                    exec("city_name = %s.city"%(city))
+                    exec("state = %s.state"%(city))
+                    filename = f"{city_name}_{state}.csv"
+                    downloadCSV(base_url + href, filename, proxy_pool)
+                    sleep(10)
+                    df = pd.read_csv(filename)
+                    downloaded_cities.add(city)
+                    df = db_gateway.transform(df)
+                    db_gateway.load(df)
+                    loaded_cities.add(city)
+                except Exception as e:
+                    print("Error:")
+                    print(str(e))
+                local_files = os.listdir(os.getcwd())
+                if filename in local_files:
+                    os.remove(filename)
+            else:
+                print(f"Unable to download from {city}")
+                unscrapable_cities.add(city)
+        except:
+            print("Retry timeout")
         sleep(random.randint(min_delay_seconds, max_delay_seconds))
     
     successful = "\n".join(list(loaded_cities))

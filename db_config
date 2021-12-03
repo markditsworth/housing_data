@@ -23,3 +23,6 @@ CREATE TABLE housing(
     LONGITUDE FLOAT(9,6),
     PRIMARY KEY ( ID )
 );
+
+
+grant all privileges on MarkDB.* to 'root'@'%' identified by 'MYPW';
