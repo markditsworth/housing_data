@@ -38,7 +38,7 @@ def getProxies():
     return proxies
 
 
-@retry(stop=stop_after_attempt(10), wait=wait_fixed(5))
+@retry(stop=stop_after_attempt(10), wait=wait_fixed(3))
 def scrape(Location, filters, proxy_list):
     proxy = random.choice(proxy_list)
     city_path = f"/city/{Location.id}/{Location.state}/{Location.city}"
@@ -62,7 +62,7 @@ def parseDownloadLink(html, download_id="download-and-save"):
     print(f"Got href: {href}")
     return href
 
-@retry(stop=stop_after_attempt(4), wait=wait_fixed(5))
+@retry(stop=stop_after_attempt(10), wait=wait_fixed(3))
 def downloadCSV(url, filename, proxy_list):
     print(f"attempting download from {url}")
     proxy = urllib.request.ProxyHandler({'https': random.choice(proxy_list)})
@@ -101,7 +101,7 @@ if __name__ == "__main__":
                     exec("state = %s.state"%(city))
                     filename = f"{city_name}_{state}.csv"
                     downloadCSV(base_url + href, filename, proxy_pool)
-                    sleep(10)
+                    sleep(1)
                     df = pd.read_csv(filename)
                     downloaded_cities.add(city)
                     df = db_gateway.transform(df)
