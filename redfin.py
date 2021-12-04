@@ -143,7 +143,7 @@ if __name__ == "__main__":
     ----------------------------
     %s
     """%(unscraped, error_with_download, error_with_loading, successful)
-
+    print(notification)
     result = email_gateway.sendEmail(notification)
     if result:
         print(result)
