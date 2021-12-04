@@ -31,7 +31,7 @@ def getProxies():
     for row in rows[1:]:
         data = row.findAll(lambda tag: tag.name=="td")
         country = data[2].text
-        if country == "US":
+        if country in ["US", "GB", "CA"]:
             ip = data[0].text
             port = data[1].text
             proxies.append(f"http://{ip}:{port}")
